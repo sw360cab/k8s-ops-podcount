@@ -19,3 +19,10 @@ spec:
       containers:
         - name: whoami
           image: traefik/whoami
+          resources:
+            limits:
+              cpu: "1"
+              memory: "500Mi"
+            requests:
+              cpu: "0.5"
+              memory: "250Mi"
