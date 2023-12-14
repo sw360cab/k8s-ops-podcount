@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- pod-count_v1_podcount.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

@@ -1,0 +1,31 @@
+# permissions for end users to edit podcounts.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: podcount-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: k8s-hello-operator
+    app.kubernetes.io/part-of: k8s-hello-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: podcount-editor-role
+rules:
+- apiGroups:
+  - pod-count.minimalgap.com
+  resources:
+  - podcounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - pod-count.minimalgap.com
+  resources:
+  - podcounts/status
+  verbs:
+  - get

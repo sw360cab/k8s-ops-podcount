@@ -1,0 +1,12 @@
+apiVersion: pod-count.minimalgap.com/v1
+kind: PodCount
+metadata:
+  labels:
+    app.kubernetes.io/name: podcount
+    app.kubernetes.io/instance: podcount-sample
+    app.kubernetes.io/part-of: k8s-hello-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: k8s-hello-operator
+  name: podcount-sample
+spec:
+  # TODO(user): Add fields here
