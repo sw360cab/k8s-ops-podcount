@@ -1,0 +1,19 @@
+# This pos is only for test purposes.
+# Use Deployment in place of.
+kind: Pod
+apiVersion: v1
+metadata:
+  name: whoami-pod
+  labels:
+    name: whoami
+spec:
+  containers:
+    - name: whoami
+      image: traefik/whoami
+      resources:
+        limits:
+          cpu: "1"
+          memory: "500Mi"
+        requests:
+          cpu: "0.5"
+          memory: "250Mi"

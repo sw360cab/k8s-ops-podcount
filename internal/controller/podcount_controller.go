@@ -21,9 +21,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	podcountv1 "github.com/k8s-ops-hello/api/v1"
 )
@@ -49,14 +52,17 @@ type PodCountReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *PodCountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-	log.Info("reconciling foo custom resource")
+	log.Info("reconciling custom resource")
 
-	// Get the Foo resource that triggered the reconciliation request
-	var podcount podcountv1.PodCount
-	if err := r.Get(ctx, req.NamespacedName, &podcount); err != nil {
+	// Get the PodCount resource
+	var podCount podcountv1.PodCount
+	var podCountList podcountv1.PodCountList
+
+	if err := r.List(ctx, &podCountList); err != nil || len(podCountList.Items) != 1 {
 		log.Error(err, "unable to fetch CRD of counter")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	podCount = podCountList.Items[0]
 
 	// Get all the nodes
 	var nodes corev1.NodeList
@@ -66,8 +72,8 @@ func (r *PodCountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	} else {
 		for _, node := range nodes.Items {
 			opts := []client.ListOption{
-				// client.InNamespace(request.NamespacedName.Namespace),
-				client.MatchingLabels{"name": "ok"},
+				client.InNamespace(req.NamespacedName.Namespace),
+				client.MatchingLabels{"name": podCount.Spec.Name},
 				client.MatchingFields{"spec.nodeName": node.Name},
 			}
 
@@ -75,9 +81,17 @@ func (r *PodCountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			if err := r.List(ctx, &pods, opts...); err != nil {
 				log.Error(err, "unable to list pods")
 			} else {
-				if len(pods.Items) > 1 {
-					log.Info("More than one pod item found in node", node.Name)
+				if len(pods.Items) > podCount.Spec.PodsPerNode || podCount.Status.MaxPodsExceeded {
+					log.Info("Ko -> Node exceeded the maximum number of Pods per node ",
+						"name", node.Name, "spec", podCount.Spec)
+					// Update podCount status
+					podCount.Status.MaxPodsExceeded = true
+					return ctrl.Result{}, nil
+				} else if len(pods.Items) == podCount.Spec.PodsPerNode {
+					log.Info("OK -> Node has reached the maximum number of Pods",
+						"name", node.Name, "spec", podCount.Spec)
 				}
+				podCount.Status.MaxPodsExceeded = false
 			}
 		}
 	}
@@ -87,7 +101,60 @@ func (r *PodCountReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PodCountReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// create index on node name
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &corev1.Pod{}, "spec.nodeName",
+		func(rawObj client.Object) []string {
+			pod := rawObj.(*corev1.Pod)
+			return []string{pod.Spec.NodeName}
+		}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&podcountv1.PodCount{}).
+		Watches(
+			&corev1.Pod{},
+			handler.EnqueueRequestsFromMapFunc(r.mapPodsReqToPodCountReq),
+		).
+		// filters
+		// WithEventFilter(predicate.Funcs{
+		// 	UpdateFunc: func(e event.UpdateEvent) bool { return false },
+		// 	DeleteFunc: func(e event.DeleteEvent) bool { return false },
+		// }).
 		Complete(r)
+}
+
+func (r *PodCountReconciler) mapPodsReqToPodCountReq(ctx context.Context, pod client.Object) []reconcile.Request {
+	var pods corev1.PodList
+	req := []reconcile.Request{}
+	log := log.FromContext(ctx)
+
+	// Get the PodCount resource
+	var podCount podcountv1.PodCount
+	var podCountList podcountv1.PodCountList
+	if err := r.List(ctx, &podCountList); err != nil || len(podCountList.Items) != 1 {
+		log.Error(err, "unable to fetch CRD of counter")
+		return req
+	}
+	podCount = podCountList.Items[0]
+	opts := []client.ListOption{
+		client.MatchingLabels{"name": podCount.Spec.Name},
+	}
+
+	// get pods in node
+	if err := r.List(ctx, &pods, opts...); err != nil {
+		log.Error(err, "unable to list pods")
+	} else {
+		for _, item := range pods.Items {
+			if item.Name == pod.GetName() {
+				log.Info("Pod Ready", "item", item.Name, "name", pod.GetName())
+				req = append(req, reconcile.Request{
+					NamespacedName: types.NamespacedName{Name: item.Name, Namespace: item.Namespace},
+				})
+				log.Info("pod custom resource issued an event", "name", pod.GetName())
+			}
+		}
+	}
+
+	return req
 }
